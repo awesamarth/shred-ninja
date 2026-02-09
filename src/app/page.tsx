@@ -22,6 +22,34 @@ const processedTokens = new Set<string>() // Prevent duplicate events
 type GameStatus = 'idle' | 'playing' | 'gameOver'
 type TokenType = 'USDC' | 'USDT'
 
+// Audio utilities
+const audioCtx = typeof window !== 'undefined' ? new AudioContext() : null
+
+const playTone = (frequency: number, duration: number, volume = 0.3) => {
+  if (!audioCtx) return
+  const osc = audioCtx.createOscillator()
+  const gain = audioCtx.createGain()
+  osc.connect(gain)
+  gain.connect(audioCtx.destination)
+  osc.frequency.value = frequency
+  gain.gain.value = volume
+  osc.start()
+  osc.stop(audioCtx.currentTime + duration)
+}
+
+const sounds = {
+  tap: () => {
+    playTone(523, 0.08, 0.25) // C5
+    setTimeout(() => playTone(659, 0.12, 0.2), 80) // E5
+  },
+  miss: () => playTone(220, 0.15),
+  gameOver: () => {
+    playTone(440, 0.2, 0.4)
+    setTimeout(() => playTone(330, 0.2, 0.4), 100)
+    setTimeout(() => playTone(220, 0.4, 0.4), 200)
+  },
+}
+
 interface Token {
   id: string
   type: TokenType
@@ -44,6 +72,18 @@ export default function Home() {
   const [tokens, setTokens] = useState<Token[]>([])
   const missedTokens = useRef(new Set<string>()) // Track which tokens already counted as missed
   const scoreRef = useRef(0) // Ref to access current score in event subscription closure
+  const bgMusicRef = useRef<HTMLAudioElement | null>(null)
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      bgMusicRef.current = new Audio('/jpbg.mp3')
+      bgMusicRef.current.loop = true
+      bgMusicRef.current.volume = 0.2
+    }
+    return () => {
+      bgMusicRef.current?.pause()
+    }
+  }, [])
 
   const generatePosition = () => {
     const vw = window.innerWidth
@@ -59,10 +99,11 @@ export default function Home() {
   useEffect(() => {
     if (status !== 'playing') return
 
+    console.log('[SUBSCRIBE] Starting shred subscription...')
     const unwatch = client.watchShreds({
       includeStateChanges: false,
       onShred: (shred) => {
-        // console.log("aaya") 
+        console.log("shred received")
         shred.transactions.forEach((tx) => {
           const filteredLogs = tx.logs.filter(
             (log) =>
@@ -78,6 +119,8 @@ export default function Home() {
               )?.[0] as TokenType
 
               if (!tokenType) return
+
+              console.log(`[${tokenType}] Detected transfer in tx ${tx.hash}`)
 
               const tokenId = `${tx.hash}-${log.topics[0]}`
 
@@ -100,9 +143,13 @@ export default function Home() {
               const timerId = window.setTimeout(() => {
                 if (tokenType === 'USDC' && !missedTokens.current.has(tokenId)) {
                   missedTokens.current.add(tokenId)
+                  sounds.miss()
                   setMisses((m) => {
                     const newMisses = m + 1
-                    if (newMisses >= MAX_MISSES) setStatus('gameOver')
+                    if (newMisses >= MAX_MISSES) {
+                      setStatus('gameOver')
+                      sounds.gameOver()
+                    }
                     return newMisses
                   })
                 }
@@ -134,8 +181,11 @@ export default function Home() {
     })
 
     // USDT tap = game over, USDC tap = score++
-    if (tokenType === 'USDT') setStatus('gameOver')
-    else {
+    if (tokenType === 'USDT') {
+      sounds.gameOver()
+      setStatus('gameOver')
+    } else {
+      sounds.tap()
       setScore((s) => {
         scoreRef.current = s + 1
         return s + 1
@@ -144,6 +194,8 @@ export default function Home() {
   }
 
   const startGame = () => {
+    audioCtx?.resume() // Resume AudioContext on user interaction
+    bgMusicRef.current?.play().catch(e => console.error('BGM error:', e))
     setStatus('playing')
     setScore(0)
     setMisses(0)
