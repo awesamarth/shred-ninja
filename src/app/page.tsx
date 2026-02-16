@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { createPublicClient, webSocket } from 'viem'
+import { createPublicClient, createWalletClient, webSocket } from 'viem'
 import { riseTestnet } from 'viem/chains'
 import { shredActions } from 'shreds/viem'
 
@@ -65,6 +65,7 @@ const client = createPublicClient({
   transport: webSocket('wss://testnet.riselabs.xyz/ws'),
 }).extend(shredActions)
 
+
 export default function Home() {
   const [status, setStatus] = useState<GameStatus>('idle')
   const [score, setScore] = useState(0)
@@ -98,7 +99,8 @@ export default function Home() {
 
   useEffect(() => {
     if (status !== 'playing') return
-
+    
+    
     console.log('[SUBSCRIBE] Starting shred subscription...')
     const unwatch = client.watchShreds({
       includeStateChanges: false,
